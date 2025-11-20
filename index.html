@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML5.js AI Annotations</title>
+        <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>ML5.js AI Annotations</h1>
+        <p class="subtitle">Upload an image and tell me what to do with it</p>
+
+        <div class="dropzone" id="dropzone">
+            <svg class="dropzone-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+            </svg>
+            <p class="dropzone-text">Drag and drop an image here, or click to select</p>
+            <input type="file" id="fileInput" accept="image/*">
+        </div>
+
+        <div class="image-container hidden" id="imageContainer">
+            <canvas id="displayCanvas"></canvas>
+            <img id="displayImage" alt="Uploaded image">
+        </div>  
+
+        <div class="input-group">
+            <label for="promptInput">What would you like to do with this image?</label>
+            <textarea 
+                id="promptInput" 
+                rows="3" 
+                placeholder="e.g., 'Circle faces in the image' or 'Detect faces'"></textarea>
+        </div>
+
+        <button class="btn" id="analyzeBtn" disabled>
+            Analyze Image
+        </button>
+
+        <div class="result" id="result">
+            <svg class="result-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <p id="resultText"></p>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
