@@ -3,13 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ML5.js AI Annotations</title>
-        <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
+    <title>TensorFlow.js AI Annotations</title>
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+    <!-- TensorFlow Models -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>ML5.js AI Annotations</h1>
+        <h1>TensorFlow.js AI Annotations</h1>
         <p class="subtitle">Upload an image and tell me what to do with it</p>
 
         <div class="dropzone" id="dropzone">
@@ -30,7 +34,7 @@
             <textarea 
                 id="promptInput" 
                 rows="3" 
-                placeholder="e.g., 'Circle faces in the image' or 'Detect faces'"></textarea>
+                placeholder="e.g., 'Detect faces', 'Find people', 'Circle cars in red'"></textarea>
         </div>
 
         <button class="btn" id="analyzeBtn" disabled>

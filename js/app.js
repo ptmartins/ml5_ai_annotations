@@ -1,6 +1,7 @@
 (function() {
 
     let detector = null;
+    let objectDetector = null;
     let currentImage = null;
     let imageElement = new Image();
     let DOM = {};
@@ -38,37 +39,17 @@
         console.log('ml5 is available, checking version:', ml5.version);
         console.log('Available ml5 methods:', Object.keys(ml5));
         
-        // Use enhanced mock detection that works with any image
-        console.log('Using enhanced face detection for crowd images');
-        tryAlternativeDetection();
-    }
-    
-    function tryAlternativeDetection() {
-        console.log('Setting up real face detection using face-api.js');
-        
-        // Load face-api.js
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js';
-        document.head.appendChild(script);
-        
-        script.onload = async () => {
-            try {
-                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights');
-                detector = {
-                    isFaceApi: true,
-                    ready: true
-                };
-                console.log('face-api.js loaded successfully');
-            } catch (error) {
-                console.error('Error loading face-api.js:', error);
-                useMockDetection();
-            }
-        };
-        
-        script.onerror = () => {
-            console.error('Failed to load face-api.js');
+        // Use tracking.js for face detection (no TensorFlow)
+        if (typeof tracking !== 'undefined') {
+            detector = {
+                isTracking: true,
+                ready: true
+            };
+            console.log('tracking.js face detection ready');
+        } else {
+            console.log('tracking.js not loaded, using mock detection');
             useMockDetection();
-        };
+        }
     }
     
     function useMockDetection() {
@@ -117,7 +98,53 @@
 
         return new Promise(function(resolve) {
             imageElement.onload = async function() {
-                if (detector.isFaceApi) {
+                if (detector.isTracking) {
+                    // Use tracking.js for face detection
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = imageElement.width;
+                        canvas.height = imageElement.height;
+                        context.drawImage(imageElement, 0, 0, imageElement.width, imageElement.height);
+                        
+                        const tracker = new tracking.ObjectTracker('face');
+                        tracker.setInitialScale(3);
+                        tracker.setStepSize(1.7);
+                        tracker.setEdgesDensity(0.1);
+                        
+                        const faces = [];
+                        const minFaceSize = Math.min(imageElement.width, imageElement.height) * 0.05;
+                        
+                        tracker.on('track', function(event) {
+                            if (event.data && event.data.length > 0) {
+                                event.data.forEach(function(rect) {
+                                    // Filter out very small detections (likely false positives)
+                                    if (rect.width >= minFaceSize && rect.height >= minFaceSize) {
+                                        faces.push({
+                                            x: rect.x,
+                                            y: rect.y,
+                                            width: rect.width,
+                                            height: rect.height
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                        
+                        tracking.track(canvas, tracker);
+                        
+                        // Give tracking time to process
+                        setTimeout(() => {
+                            // Remove overlapping detections
+                            const filtered = removeOverlappingFaces(faces);
+                            console.log(`tracking.js detected ${filtered.length} faces (filtered from ${faces.length})`);
+                            resolve(filtered);
+                        }, 300);
+                    } catch (error) {
+                        console.error('tracking.js error:', error);
+                        resolve([]);
+                    }
+                } else if (detector.isFaceApi) {
                     // Use face-api.js detection with lower threshold for better detection
                     try {
                         const options = new faceapi.TinyFaceDetectorOptions({ 
@@ -186,6 +213,37 @@
             };
             imageElement.src = currentImage;
         });
+    }
+
+    function removeOverlappingFaces(faces) {
+        if (faces.length === 0) return faces;
+        
+        const filtered = [];
+        const sorted = faces.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+        
+        for (const face of sorted) {
+            let isOverlapping = false;
+            
+            for (const existing of filtered) {
+                // Calculate overlap
+                const xOverlap = Math.max(0, Math.min(face.x + face.width, existing.x + existing.width) - Math.max(face.x, existing.x));
+                const yOverlap = Math.max(0, Math.min(face.y + face.height, existing.y + existing.height) - Math.max(face.y, existing.y));
+                const overlapArea = xOverlap * yOverlap;
+                const faceArea = face.width * face.height;
+                
+                // If more than 30% overlap, consider it the same face
+                if (overlapArea / faceArea > 0.3) {
+                    isOverlapping = true;
+                    break;
+                }
+            }
+            
+            if (!isOverlapping) {
+                filtered.push(face);
+            }
+        }
+        
+        return filtered;
     }
 
     function removeOverlapping(faces, minDistance) {
@@ -305,19 +363,22 @@
             try {
                 const lowerPrompt = prompt.toLowerCase();
 
-                if (lowerPrompt.includes('face') || lowerPrompt.includes('circle')) {
+                if (lowerPrompt.includes('face')) {
                     const detections = await detectFaces();
                     
                     if (detections && detections.length > 0) {
-                        drawFaceCircles(detections, prompt);
+                        drawDetections(detections, prompt, 'face');
                         showResult(`${detections.length} face(s) detected and circled in the image!`);
                     } else {
                         showResult('No faces detected in the image.');
                     }
+                } else if (lowerPrompt.includes('detect') || lowerPrompt.includes('circle') || lowerPrompt.includes('find')) {
+                    // For now, only face detection is available
+                    showResult('Currently only face detection is available. Try: "circle faces" or "detect faces"');
                 } else if (lowerPrompt.includes('describe') || lowerPrompt.includes('what')) {
                     showResult('Image analysis complete. For detailed descriptions, consider using a vision model API.');
                 } else {
-                    showResult('Command processed. Currently supporting: face detection and circling.');
+                    showResult('Try: "detect faces" or "circle faces in red"');
                 }
             } catch (error) {
                 showResult('Error processing image: ' + error.message);
@@ -363,8 +424,61 @@
         DOM.result.classList.add('show');
     }
 
-    function drawFaceCircles(detections, prompt = '') {
-        console.log('drawFaceCircles called with:', detections.length, 'faces');
+    async function detectObjects(prompt) {
+        if (!currentImage || !objectDetector) {
+            console.log('Object detector not ready');
+            return [];
+        }
+        
+        return new Promise(function(resolve) {
+            imageElement.onload = async function() {
+                try {
+                    const predictions = await objectDetector.detect(imageElement);
+                    console.log('COCO-SSD predictions:', predictions);
+                    
+                    // Filter by prompt if specific object mentioned
+                    const lowerPrompt = prompt.toLowerCase();
+                    let filtered = predictions;
+                    
+                    // Extract object type from prompt
+                    const objectTypes = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+                        'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
+                        'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
+                        'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
+                        'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon',
+                        'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut',
+                        'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+                        'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book',
+                        'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'];
+                    
+                    for (const objType of objectTypes) {
+                        if (lowerPrompt.includes(objType) || lowerPrompt.includes(objType + 's')) {
+                            filtered = predictions.filter(p => p.class.toLowerCase().includes(objType) || objType.includes(p.class.toLowerCase()));
+                            break;
+                        }
+                    }
+                    
+                    const mapped = filtered.map(pred => ({
+                        x: pred.bbox[0],
+                        y: pred.bbox[1],
+                        width: pred.bbox[2],
+                        height: pred.bbox[3],
+                        class: pred.class,
+                        score: pred.score
+                    }));
+                    
+                    resolve(mapped);
+                } catch (error) {
+                    console.error('Object detection error:', error);
+                    resolve([]);
+                }
+            };
+            imageElement.src = currentImage;
+        });
+    }
+
+    function drawDetections(detections, prompt = '', type = 'object') {
+        console.log('drawDetections called with:', detections.length, type + 's');
         console.log('Prompt:', prompt);
         
         const ctx = DOM.displayCanvas.getContext('2d');
@@ -411,33 +525,43 @@
                 const centerX = detection.x + detection.width / 2;
                 const centerY = detection.y + detection.height / 2;
                 
-                // Make radius large enough to go "around" the face
-                let radius = Math.max(detection.width, detection.height) / 2;
-                
-                // If prompt mentions "around", make circle bigger
-                if (lowerPrompt.includes('around')) {
-                    radius = radius * 1.3; // 30% bigger to go around face
+                // Determine shape based on prompt
+                if (lowerPrompt.includes('circle')) {
+                    // Draw circle around detection
+                    let radius = Math.max(detection.width, detection.height) / 2;
+                    if (lowerPrompt.includes('around')) {
+                        radius = radius * 1.3;
+                    }
+                    radius = Math.max(radius, 20);
+
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = lineWidth;
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                    ctx.stroke();
+                } else {
+                    // Draw rectangle (bounding box)
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = lineWidth;
+                    ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
                 }
-                
-                // Minimum radius for visibility
-                radius = Math.max(radius, 20);
 
-                console.log(`Face ${index + 1}: detection=(${detection.x}, ${detection.y}, ${detection.width}x${detection.height})`);
-                console.log(`Drawing circle ${index + 1} at (${centerX}, ${centerY}) with radius ${radius}`);
-
-                ctx.strokeStyle = color;
-                ctx.lineWidth = lineWidth;
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-                ctx.stroke();
-
-                // Add face numbers if requested or if few faces
-                if (detections.length <= 10 && !lowerPrompt.includes('no numbers')) {
+                // Add labels
+                if (detections.length <= 20 && !lowerPrompt.includes('no label')) {
                     ctx.fillStyle = color;
                     ctx.font = `${Math.max(12, lineWidth * 3)}px sans-serif`;
-                    const text = `${index + 1}`;
-                    const textWidth = ctx.measureText(text).width;
-                    ctx.fillText(text, centerX - textWidth/2, centerY - radius - 10);
+                    const label = detection.class ? `${detection.class} ${index + 1}` : `${type} ${index + 1}`;
+                    const textWidth = ctx.measureText(label).width;
+                    
+                    // Draw background for text
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = 0.7;
+                    ctx.fillRect(detection.x, detection.y - 20, textWidth + 8, 20);
+                    ctx.globalAlpha = 1;
+                    
+                    // Draw text
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillText(label, detection.x + 4, detection.y - 5);
                 }
             });
         }
@@ -445,9 +569,11 @@
         // Ensure canvas is visible and image is hidden
         DOM.displayImage.style.display = 'none';
         DOM.displayCanvas.style.display = 'block';
-        
-        console.log('Canvas display style:', DOM.displayCanvas.style.display);
-        console.log('Canvas visibility:', window.getComputedStyle(DOM.displayCanvas).display);
+    }
+
+    function drawFaceCircles(detections, prompt = '') {
+        // Legacy function - redirect to drawDetections
+        drawDetections(detections, prompt, 'face');
     }
 
     
