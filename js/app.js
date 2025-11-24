@@ -41,9 +41,9 @@
         
         try {
             blazeFaceModel = await blazeface.load({
-                maxFaces: 20,          // Detect up to 20 faces
-                iouThreshold: 0.3,     
-                scoreThreshold: 0.75   // Minimum confidence (0.75 is default)
+                maxFaces: 50,          // Detect up to 50 faces
+                iouThreshold: 0.1,     
+                scoreThreshold: 0.5    // Lower confidence threshold to catch more faces (especially in crowds)
             });
             detector = {
                 ready: true,
@@ -160,105 +160,6 @@
             };
             imageElement.src = currentImage;
         });
-    }
-
-    function removeOverlappingFaces(faces) {
-        if (faces.length === 0) return faces;
-        
-        const filtered = [];
-        const sorted = faces.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-        
-        for (const face of sorted) {
-            let isOverlapping = false;
-            
-            for (const existing of filtered) {
-
-                const xOverlap = Math.max(0, Math.min(face.x + face.width, existing.x + existing.width) - Math.max(face.x, existing.x));
-                const yOverlap = Math.max(0, Math.min(face.y + face.height, existing.y + existing.height) - Math.max(face.y, existing.y));
-                const overlapArea = xOverlap * yOverlap;
-                const faceArea = face.width * face.height;
-                
-
-                if (overlapArea / faceArea > 0.3) {
-                    isOverlapping = true;
-                    break;
-                }
-            }
-            
-            if (!isOverlapping) {
-                filtered.push(face);
-            }
-        }
-        
-        return filtered;
-    }
-
-    function removeOverlapping(faces, minDistance) {
-        const filtered = [];
-        
-        faces.sort((a, b) => (b.confidence || 0.5) - (a.confidence || 0.5));
-        
-        for (const face of faces) {
-            let isOverlapping = false;
-            
-            for (const existing of filtered) {
-                const dx = face.x - existing.x;
-                const dy = face.y - existing.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                if (distance < minDistance) {
-                    isOverlapping = true;
-                    break;
-                }
-            }
-            
-            if (!isOverlapping) {
-                filtered.push(face);
-            }
-        }
-        
-        return filtered.slice(0, 20); // Max 20 faces
-    }
-    
-    function isSkinTone(r, g, b) {
-        // More inclusive skin tone detection for diverse crowds
-        const rg = r - g;
-        const rb = r - b;
-        
-        // Light skin tones
-        const light = (r > 95 && g > 40 && b > 20 && rg > 15 && r > g && r > b);
-        
-        // Medium skin tones
-        const medium = (r > 80 && r < 220 && g > 50 && g < 180 && b > 30 && b < 150 && rg > 5);
-        
-        // Darker skin tones
-        const dark = (r > 40 && r < 120 && g > 30 && g < 100 && b > 20 && b < 80 && r >= g && g >= b);
-        
-        // Very inclusive range for crowd detection
-        const inclusive = (r > 60 && g > 30 && b > 15 && r > b && Math.abs(rg) < 50);
-        
-        return light || medium || dark || inclusive;
-    }
-    
-
-    
-    function getDefaultFaces(img) {
-        // Fallback: place a few faces in typical locations
-        const faceSize = Math.min(img.width, img.height) * 0.1;
-        return [
-            {
-                x: img.width * 0.3 - faceSize/2,
-                y: img.height * 0.3 - faceSize/2,
-                width: faceSize,
-                height: faceSize
-            },
-            {
-                x: img.width * 0.7 - faceSize/2,
-                y: img.height * 0.4 - faceSize/2,
-                width: faceSize,
-                height: faceSize
-            }
-        ];
     }
 
     function setupEvents() {
