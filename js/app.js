@@ -40,8 +40,7 @@
         console.log('Loading BlazeFace model...');
         
         try {
-            // BlazeFace 0.0.7 only supports maxFaces in load()
-            // We'll use multiple detection passes to catch crowded faces
+
             blazeFaceModel = await blazeface.load();
             detector = {
                 ready: true,
@@ -112,7 +111,6 @@
                         
                         const allFaces = [];
                         
-                        // Pass 1: Full image detection
                         const predictions = await blazeFaceModel.estimateFaces(imageElement, false);
                         console.log('Pass 1 (full image):', predictions.length, 'faces');
                         
@@ -130,12 +128,11 @@
                             });
                         }
                         
-                        // Pass 2-5: Detect in grid regions (for crowded scenes)
-                        // Create overlapping grid to catch faces at boundaries
+
                         const canvas = document.createElement('canvas');
                         const ctx = canvas.getContext('2d');
-                        const gridSize = 2; // 2x2 grid = 4 regions
-                        const overlap = 0.2; // 20% overlap between regions
+                        const gridSize = 2; 
+                        const overlap = 0.2; 
                         
                         for (let row = 0; row < gridSize; row++) {
                             for (let col = 0; col < gridSize; col++) {
@@ -144,7 +141,7 @@
                                 const offsetX = (imageElement.width / gridSize) * col - (regionWidth - imageElement.width / gridSize) / 2;
                                 const offsetY = (imageElement.height / gridSize) * row - (regionHeight - imageElement.height / gridSize) / 2;
                                 
-                                // Extract region
+
                                 canvas.width = Math.min(regionWidth, imageElement.width - Math.max(0, offsetX));
                                 canvas.height = Math.min(regionHeight, imageElement.height - Math.max(0, offsetY));
                                 
@@ -156,7 +153,6 @@
                                     canvas.width, canvas.height
                                 );
                                 
-                                // Detect in this region
                                 const regionPredictions = await blazeFaceModel.estimateFaces(canvas, false);
                                 console.log(`Pass ${row * gridSize + col + 2} (region ${row},${col}):`, regionPredictions.length, 'faces');
                                 
@@ -164,7 +160,7 @@
                                     regionPredictions.forEach(prediction => {
                                         const start = prediction.topLeft;
                                         const end = prediction.bottomRight;
-                                        // Adjust coordinates back to full image space
+
                                         allFaces.push({
                                             x: start[0] + Math.max(0, offsetX),
                                             y: start[1] + Math.max(0, offsetY),
@@ -177,7 +173,7 @@
                             }
                         }
                         
-                        // Remove duplicate detections (same face detected in multiple passes)
+
                         const uniqueFaces = removeDuplicateFaces(allFaces);
                         
                         console.log(`Total detections: ${allFaces.length}, After deduplication: ${uniqueFaces.length}`);
@@ -189,7 +185,7 @@
                         resolve([]);
                     }
                 } else if (detector.isMock) {
-                    // Use mock detection
+
                     console.log('Using mock detection');
                     detector.detect(imageElement).then(resolve).catch(() => resolve([]));
                 } else {
@@ -204,7 +200,7 @@
     function removeDuplicateFaces(faces) {
         if (faces.length === 0) return faces;
         
-        // Sort by confidence (highest first)
+
         const sorted = faces.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
         const unique = [];
         
@@ -212,7 +208,7 @@
             let isDuplicate = false;
             
             for (const existing of unique) {
-                // Calculate overlap
+
                 const xOverlap = Math.max(0, 
                     Math.min(face.x + face.width, existing.x + existing.width) - 
                     Math.max(face.x, existing.x)
@@ -225,7 +221,6 @@
                 const faceArea = face.width * face.height;
                 const existingArea = existing.width * existing.height;
                 
-                // If overlap is >50% of either face, consider it a duplicate
                 const overlapRatio = overlapArea / Math.min(faceArea, existingArea);
                 
                 if (overlapRatio > 0.5) {
@@ -300,7 +295,7 @@
                         showResult('No faces detected in the image.');
                     }
                 } else if (lowerPrompt.includes('detect') || lowerPrompt.includes('circle') || lowerPrompt.includes('find')) {
-                    // For now, only face detection is available
+
                     showResult('Currently only face detection is available. Try: "circle faces" or "detect faces"');
                 } else if (lowerPrompt.includes('describe') || lowerPrompt.includes('what')) {
                     showResult('Image analysis complete. For detailed descriptions, consider using a vision model API.');
@@ -357,11 +352,11 @@
                     const predictions = await objectDetector.detect(imageElement);
                     console.log('COCO-SSD predictions:', predictions);
                     
-                    // Filter by prompt if specific object mentioned
+
                     const lowerPrompt = prompt.toLowerCase();
                     let filtered = predictions;
                     
-                    // Extract object type from prompt
+
                     const objectTypes = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
                         'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse',
                         'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
@@ -412,8 +407,8 @@
         if (detections && detections.length > 0) {
             const lowerPrompt = prompt.toLowerCase();
             
-            // Determine color from prompt
-            let color = '#dc2626'; // default to red for face detection
+
+            let color = '#dc2626'; 
             
             console.log('Checking prompt for colors:', lowerPrompt);
             
@@ -433,8 +428,8 @@
             
             console.log('Selected color:', color);
             
-            // Parse line width from prompt (look for "Npx" pattern)
-            let lineWidth = 4; // default
+
+            let lineWidth = 4; 
             const pxMatch = lowerPrompt.match(/(\d+)px/);
             if (pxMatch) {
                 lineWidth = parseInt(pxMatch[1]);
@@ -446,9 +441,9 @@
                 const centerX = detection.x + detection.width / 2;
                 const centerY = detection.y + detection.height / 2;
                 
-                // Determine shape based on prompt
+
                 if (lowerPrompt.includes('circle')) {
-                    // Draw circle around detection
+
                     let radius = Math.max(detection.width, detection.height) / 2;
                     if (lowerPrompt.includes('around')) {
                         radius = radius * 1.3;
@@ -487,25 +482,25 @@
             });
         }
 
-        // Ensure canvas is visible and image is hidden
+
         DOM.displayImage.style.display = 'none';
         DOM.displayCanvas.style.display = 'block';
     }
 
     function drawFaceCircles(detections, prompt = '') {
-        // Legacy function - redirect to drawDetections
+
         drawDetections(detections, prompt, 'face');
     }
 
     
 
-    // Wait for both DOM and all resources to be loaded
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(init, 500); // Give ml5 extra time to load
+            setTimeout(init, 500); 
         });
     } else {
-        setTimeout(init, 500); // Page already loaded
+        setTimeout(init, 500); 
     }
 
 })()
