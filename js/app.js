@@ -40,17 +40,15 @@
         console.log('Loading BlazeFace model...');
         
         try {
-            blazeFaceModel = await blazeface.load({
-                maxFaces: 50,          // Detect up to 50 faces
-                iouThreshold: 0.1,     
-                scoreThreshold: 0.5    // Lower confidence threshold to catch more faces (especially in crowds)
-            });
+            // BlazeFace 0.0.7 only supports maxFaces in load()
+            // We'll use multiple detection passes to catch crowded faces
+            blazeFaceModel = await blazeface.load();
             detector = {
                 ready: true,
                 isBlazeFace: true,
                 model: blazeFaceModel
             };
-            console.log('BlazeFace model loaded successfully with multi-face detection!');
+            console.log('BlazeFace model loaded successfully!');
         } catch (error) {
             console.error('Failed to load BlazeFace model:', error);
             useMockDetection();
@@ -109,41 +107,82 @@
                 if (detector.isBlazeFace && blazeFaceModel) {
 
                     try {
-                        console.log('Running BlazeFace detection...');
+                        console.log('Running multi-pass BlazeFace detection...');
                         console.log('Image dimensions:', imageElement.width, 'x', imageElement.height);
                         
-
+                        const allFaces = [];
+                        
+                        // Pass 1: Full image detection
                         const predictions = await blazeFaceModel.estimateFaces(imageElement, false);
-                        console.log('BlazeFace raw predictions:', predictions);
-                        console.log('Number of faces detected:', predictions ? predictions.length : 0);
+                        console.log('Pass 1 (full image):', predictions.length, 'faces');
                         
                         if (predictions && predictions.length > 0) {
-                            const faces = predictions.map((prediction, idx) => {
-
+                            predictions.forEach(prediction => {
                                 const start = prediction.topLeft;
                                 const end = prediction.bottomRight;
-                                
-                                console.log(`Face ${idx + 1}:`, {
-                                    topLeft: start,
-                                    bottomRight: end,
-                                    probability: prediction.probability
-                                });
-                                
-                                return {
+                                allFaces.push({
                                     x: start[0],
                                     y: start[1],
                                     width: end[0] - start[0],
                                     height: end[1] - start[1],
                                     confidence: prediction.probability ? prediction.probability[0] : 0.9
-                                };
+                                });
                             });
-                            
-                            console.log(`BlazeFace detected ${faces.length} face(s) with coordinates:`, faces);
-                            resolve(faces);
-                        } else {
-                            console.log('BlazeFace detected no faces');
-                            resolve([]);
                         }
+                        
+                        // Pass 2-5: Detect in grid regions (for crowded scenes)
+                        // Create overlapping grid to catch faces at boundaries
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        const gridSize = 2; // 2x2 grid = 4 regions
+                        const overlap = 0.2; // 20% overlap between regions
+                        
+                        for (let row = 0; row < gridSize; row++) {
+                            for (let col = 0; col < gridSize; col++) {
+                                const regionWidth = imageElement.width / gridSize * (1 + overlap);
+                                const regionHeight = imageElement.height / gridSize * (1 + overlap);
+                                const offsetX = (imageElement.width / gridSize) * col - (regionWidth - imageElement.width / gridSize) / 2;
+                                const offsetY = (imageElement.height / gridSize) * row - (regionHeight - imageElement.height / gridSize) / 2;
+                                
+                                // Extract region
+                                canvas.width = Math.min(regionWidth, imageElement.width - Math.max(0, offsetX));
+                                canvas.height = Math.min(regionHeight, imageElement.height - Math.max(0, offsetY));
+                                
+                                ctx.drawImage(
+                                    imageElement,
+                                    Math.max(0, offsetX), Math.max(0, offsetY),
+                                    canvas.width, canvas.height,
+                                    0, 0,
+                                    canvas.width, canvas.height
+                                );
+                                
+                                // Detect in this region
+                                const regionPredictions = await blazeFaceModel.estimateFaces(canvas, false);
+                                console.log(`Pass ${row * gridSize + col + 2} (region ${row},${col}):`, regionPredictions.length, 'faces');
+                                
+                                if (regionPredictions && regionPredictions.length > 0) {
+                                    regionPredictions.forEach(prediction => {
+                                        const start = prediction.topLeft;
+                                        const end = prediction.bottomRight;
+                                        // Adjust coordinates back to full image space
+                                        allFaces.push({
+                                            x: start[0] + Math.max(0, offsetX),
+                                            y: start[1] + Math.max(0, offsetY),
+                                            width: end[0] - start[0],
+                                            height: end[1] - start[1],
+                                            confidence: prediction.probability ? prediction.probability[0] : 0.9
+                                        });
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // Remove duplicate detections (same face detected in multiple passes)
+                        const uniqueFaces = removeDuplicateFaces(allFaces);
+                        
+                        console.log(`Total detections: ${allFaces.length}, After deduplication: ${uniqueFaces.length}`);
+                        resolve(uniqueFaces);
+                        
                     } catch (error) {
                         console.error('BlazeFace detection error:', error);
                         console.error('Error stack:', error.stack);
@@ -160,6 +199,47 @@
             };
             imageElement.src = currentImage;
         });
+    }
+
+    function removeDuplicateFaces(faces) {
+        if (faces.length === 0) return faces;
+        
+        // Sort by confidence (highest first)
+        const sorted = faces.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+        const unique = [];
+        
+        for (const face of sorted) {
+            let isDuplicate = false;
+            
+            for (const existing of unique) {
+                // Calculate overlap
+                const xOverlap = Math.max(0, 
+                    Math.min(face.x + face.width, existing.x + existing.width) - 
+                    Math.max(face.x, existing.x)
+                );
+                const yOverlap = Math.max(0, 
+                    Math.min(face.y + face.height, existing.y + existing.height) - 
+                    Math.max(face.y, existing.y)
+                );
+                const overlapArea = xOverlap * yOverlap;
+                const faceArea = face.width * face.height;
+                const existingArea = existing.width * existing.height;
+                
+                // If overlap is >50% of either face, consider it a duplicate
+                const overlapRatio = overlapArea / Math.min(faceArea, existingArea);
+                
+                if (overlapRatio > 0.5) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
+            
+            if (!isDuplicate) {
+                unique.push(face);
+            }
+        }
+        
+        return unique;
     }
 
     function setupEvents() {
