@@ -5,8 +5,9 @@
     let currentImage = null;
     let imageElement = new Image();
     let DOM = {};
-    let ml5LoadAttempts = 0;
-    const MAX_ML5_LOAD_ATTEMPTS = 50; // 5 seconds max
+    let blazeFaceModel = null;
+    let blazeFaceLoadAttempts = 0;
+    const MAX_LOAD_ATTEMPTS = 50; // 5 seconds max
 
     function cacheDOM () {
         DOM.dropzone = document.getElementById('dropzone');
@@ -20,34 +21,36 @@
         DOM.resultText = document.getElementById('resultText');
     }   
 
-    // Initialize ml5.js face detection
-    function initML5() {
-        ml5LoadAttempts++;
+    // Initialize BlazeFace for face detection
+    async function initBlazeFace() {
+        blazeFaceLoadAttempts++;
         
-        // Check if ml5 is available
-        if (typeof ml5 === 'undefined') {
-            if (ml5LoadAttempts >= MAX_ML5_LOAD_ATTEMPTS) {
-                console.error('Failed to load ml5.js after maximum attempts');
+        // Check if TensorFlow and BlazeFace are available
+        if (typeof tf === 'undefined' || typeof blazeface === 'undefined') {
+            if (blazeFaceLoadAttempts >= MAX_LOAD_ATTEMPTS) {
+                console.error('Failed to load TensorFlow.js or BlazeFace after maximum attempts');
                 console.error('Please check your internet connection or try refreshing the page');
+                useMockDetection();
                 return;
             }
-            console.log(`Waiting for ml5 to load... (attempt ${ml5LoadAttempts})`);
-            setTimeout(initML5, 200);
+            console.log(`Waiting for TensorFlow.js and BlazeFace to load... (attempt ${blazeFaceLoadAttempts})`);
+            setTimeout(initBlazeFace, 200);
             return;
         }
         
-        console.log('ml5 is available, checking version:', ml5.version);
-        console.log('Available ml5 methods:', Object.keys(ml5));
+        console.log('TensorFlow.js version:', tf.version.tfjs);
+        console.log('Loading BlazeFace model...');
         
-        // Use tracking.js for face detection (no TensorFlow)
-        if (typeof tracking !== 'undefined') {
+        try {
+            blazeFaceModel = await blazeface.load();
             detector = {
-                isTracking: true,
-                ready: true
+                ready: true,
+                isBlazeFace: true,
+                model: blazeFaceModel
             };
-            console.log('tracking.js face detection ready');
-        } else {
-            console.log('tracking.js not loaded, using mock detection');
+            console.log('BlazeFace model loaded successfully!');
+        } catch (error) {
+            console.error('Failed to load BlazeFace model:', error);
             useMockDetection();
         }
     }
@@ -90,124 +93,55 @@
     function init() {
         cacheDOM();
         setupEvents();
-        initML5();
+        initBlazeFace();
     }
 
     async function detectFaces() {
-        if (!currentImage || !detector) return Promise.resolve([]);
+        if (!currentImage || !detector) {
+            console.log('No image or detector not ready');
+            return Promise.resolve([]);
+        }
 
         return new Promise(function(resolve) {
             imageElement.onload = async function() {
-                if (detector.isTracking) {
-                    // Use tracking.js for face detection
+                if (detector.isBlazeFace && blazeFaceModel) {
+                    // Use BlazeFace for face detection
                     try {
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        canvas.width = imageElement.width;
-                        canvas.height = imageElement.height;
-                        context.drawImage(imageElement, 0, 0, imageElement.width, imageElement.height);
+                        console.log('Running BlazeFace detection...');
+                        const predictions = await blazeFaceModel.estimateFaces(imageElement, false);
+                        console.log('BlazeFace raw predictions:', predictions);
                         
-                        const tracker = new tracking.ObjectTracker('face');
-                        tracker.setInitialScale(3);
-                        tracker.setStepSize(1.7);
-                        tracker.setEdgesDensity(0.1);
-                        
-                        const faces = [];
-                        const minFaceSize = Math.min(imageElement.width, imageElement.height) * 0.05;
-                        
-                        tracker.on('track', function(event) {
-                            if (event.data && event.data.length > 0) {
-                                event.data.forEach(function(rect) {
-                                    // Filter out very small detections (likely false positives)
-                                    if (rect.width >= minFaceSize && rect.height >= minFaceSize) {
-                                        faces.push({
-                                            x: rect.x,
-                                            y: rect.y,
-                                            width: rect.width,
-                                            height: rect.height
-                                        });
-                                    }
-                                });
-                            }
-                        });
-                        
-                        tracking.track(canvas, tracker);
-                        
-                        // Give tracking time to process
-                        setTimeout(() => {
-                            // Remove overlapping detections
-                            const filtered = removeOverlappingFaces(faces);
-                            console.log(`tracking.js detected ${filtered.length} faces (filtered from ${faces.length})`);
-                            resolve(filtered);
-                        }, 300);
+                        if (predictions && predictions.length > 0) {
+                            const faces = predictions.map(prediction => {
+                                // BlazeFace returns topLeft and bottomRight coordinates
+                                const start = prediction.topLeft;
+                                const end = prediction.bottomRight;
+                                
+                                return {
+                                    x: start[0],
+                                    y: start[1],
+                                    width: end[0] - start[0],
+                                    height: end[1] - start[1],
+                                    confidence: prediction.probability ? prediction.probability[0] : 0.9
+                                };
+                            });
+                            
+                            console.log(`BlazeFace detected ${faces.length} face(s)`);
+                            resolve(faces);
+                        } else {
+                            console.log('BlazeFace detected no faces');
+                            resolve([]);
+                        }
                     } catch (error) {
-                        console.error('tracking.js error:', error);
-                        resolve([]);
-                    }
-                } else if (detector.isFaceApi) {
-                    // Use face-api.js detection with lower threshold for better detection
-                    try {
-                        const options = new faceapi.TinyFaceDetectorOptions({ 
-                            inputSize: 512,
-                            scoreThreshold: 0.3
-                        });
-                        const detections = await faceapi.detectAllFaces(imageElement, options);
-                        const result = detections.map(det => ({
-                            x: det.box.x,
-                            y: det.box.y,
-                            width: det.box.width,
-                            height: det.box.height
-                        }));
-                        console.log(`face-api.js detected ${result.length} faces with coordinates:`, result);
-                        resolve(result);
-                    } catch (error) {
-                        console.error('face-api.js detection error:', error);
+                        console.error('BlazeFace detection error:', error);
                         resolve([]);
                     }
                 } else if (detector.isMock) {
                     // Use mock detection
+                    console.log('Using mock detection');
                     detector.detect(imageElement).then(resolve).catch(() => resolve([]));
-                } else if (detector.detectionType === 'faceMesh') {
-                    // Use faceMesh detection
-                    detector.predict(imageElement).then(function(predictions) {
-                        const faces = predictions.map(prediction => ({
-                            x: prediction.boundingBox.topLeft[0],
-                            y: prediction.boundingBox.topLeft[1],
-                            width: prediction.boundingBox.bottomRight[0] - prediction.boundingBox.topLeft[0],
-                            height: prediction.boundingBox.bottomRight[1] - prediction.boundingBox.topLeft[1]
-                        }));
-                        resolve(faces);
-                    }).catch(function(error) {
-                        console.log('FaceMesh detection failed:', error);
-                        resolve([]);
-                    });
-                } else if (detector.detect) {
-                    // Use faceApi or other detection methods
-                    detector.detect(imageElement).then(function(detections) {
-                        if (Array.isArray(detections)) {
-                            const faces = detections.map(detection => ({
-                                x: detection.alignedRect._box._x,
-                                y: detection.alignedRect._box._y,
-                                width: detection.alignedRect._box._width,
-                                height: detection.alignedRect._box._height
-                            }));
-                            resolve(faces);
-                        } else if (detections) {
-                            // Single detection
-                            resolve([{
-                                x: detections.alignedRect._box._x,
-                                y: detections.alignedRect._box._y,
-                                width: detections.alignedRect._box._width,
-                                height: detections.alignedRect._box._height
-                            }]);
-                        } else {
-                            resolve([]);
-                        }
-                    }).catch(function(error) {
-                        console.log('Face detection failed:', error);
-                        resolve([]);
-                    });
                 } else {
+                    console.log('No valid detector available');
                     resolve([]);
                 }
             };
@@ -387,12 +321,6 @@
                 DOM.analyzeBtn.textContent = 'Analyze Image';
             }
         });
-    }
-
-    function init() {
-        cacheDOM();
-        setupEvents();
-        initML5();
     }
 
     function handleFile(file) {
