@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BlazeFace Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+</head>
+<body>
+    <h1>BlazeFace Test</h1>
+    <input type="file" id="fileInput" accept="image/*">
+    <br><br>
+    <img id="testImage" style="max-width: 500px;">
+    <div id="output"></div>
+    
+    <script>
+        let model;
+        
+        async function init() {
+            console.log('Loading BlazeFace...');
+            model = await blazeface.load();
+            console.log('BlazeFace loaded');
+        }
+        
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            const img = document.getElementById('testImage');
+            const output = document.getElementById('output');
+            
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                img.src = event.target.result;
+                img.onload = async () => {
+                    console.log('Image loaded, detecting faces...');
+                    
+                    // Test with returnTensors = false (default)
+                    const predictions1 = await model.estimateFaces(img, false);
+                    console.log('Predictions (returnTensors=false):', predictions1);
+                    
+                    // Test with returnTensors = true
+                    const predictions2 = await model.estimateFaces(img, true);
+                    console.log('Predictions (returnTensors=true):', predictions2);
+                    
+                    output.innerHTML = `<h2>Detected ${predictions1.length} faces</h2><pre>${JSON.stringify(predictions1, null, 2)}</pre>`;
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        init();
+    </script>
+</body>
+</html>

@@ -7,7 +7,7 @@
     let DOM = {};
     let blazeFaceModel = null;
     let blazeFaceLoadAttempts = 0;
-    const MAX_LOAD_ATTEMPTS = 50; // 5 seconds max
+    const MAX_LOAD_ATTEMPTS = 50; 
 
     function cacheDOM () {
         DOM.dropzone = document.getElementById('dropzone');
@@ -21,11 +21,9 @@
         DOM.resultText = document.getElementById('resultText');
     }   
 
-    // Initialize BlazeFace for face detection
     async function initBlazeFace() {
         blazeFaceLoadAttempts++;
         
-        // Check if TensorFlow and BlazeFace are available
         if (typeof tf === 'undefined' || typeof blazeface === 'undefined') {
             if (blazeFaceLoadAttempts >= MAX_LOAD_ATTEMPTS) {
                 console.error('Failed to load TensorFlow.js or BlazeFace after maximum attempts');
@@ -42,13 +40,17 @@
         console.log('Loading BlazeFace model...');
         
         try {
-            blazeFaceModel = await blazeface.load();
+            blazeFaceModel = await blazeface.load({
+                maxFaces: 20,          // Detect up to 20 faces
+                iouThreshold: 0.3,     
+                scoreThreshold: 0.75   // Minimum confidence (0.75 is default)
+            });
             detector = {
                 ready: true,
                 isBlazeFace: true,
                 model: blazeFaceModel
             };
-            console.log('BlazeFace model loaded successfully!');
+            console.log('BlazeFace model loaded successfully with multi-face detection!');
         } catch (error) {
             console.error('Failed to load BlazeFace model:', error);
             useMockDetection();
@@ -105,17 +107,27 @@
         return new Promise(function(resolve) {
             imageElement.onload = async function() {
                 if (detector.isBlazeFace && blazeFaceModel) {
-                    // Use BlazeFace for face detection
+
                     try {
                         console.log('Running BlazeFace detection...');
+                        console.log('Image dimensions:', imageElement.width, 'x', imageElement.height);
+                        
+
                         const predictions = await blazeFaceModel.estimateFaces(imageElement, false);
                         console.log('BlazeFace raw predictions:', predictions);
+                        console.log('Number of faces detected:', predictions ? predictions.length : 0);
                         
                         if (predictions && predictions.length > 0) {
-                            const faces = predictions.map(prediction => {
-                                // BlazeFace returns topLeft and bottomRight coordinates
+                            const faces = predictions.map((prediction, idx) => {
+
                                 const start = prediction.topLeft;
                                 const end = prediction.bottomRight;
+                                
+                                console.log(`Face ${idx + 1}:`, {
+                                    topLeft: start,
+                                    bottomRight: end,
+                                    probability: prediction.probability
+                                });
                                 
                                 return {
                                     x: start[0],
@@ -126,7 +138,7 @@
                                 };
                             });
                             
-                            console.log(`BlazeFace detected ${faces.length} face(s)`);
+                            console.log(`BlazeFace detected ${faces.length} face(s) with coordinates:`, faces);
                             resolve(faces);
                         } else {
                             console.log('BlazeFace detected no faces');
@@ -134,6 +146,7 @@
                         }
                     } catch (error) {
                         console.error('BlazeFace detection error:', error);
+                        console.error('Error stack:', error.stack);
                         resolve([]);
                     }
                 } else if (detector.isMock) {
@@ -159,13 +172,13 @@
             let isOverlapping = false;
             
             for (const existing of filtered) {
-                // Calculate overlap
+
                 const xOverlap = Math.max(0, Math.min(face.x + face.width, existing.x + existing.width) - Math.max(face.x, existing.x));
                 const yOverlap = Math.max(0, Math.min(face.y + face.height, existing.y + existing.height) - Math.max(face.y, existing.y));
                 const overlapArea = xOverlap * yOverlap;
                 const faceArea = face.width * face.height;
                 
-                // If more than 30% overlap, consider it the same face
+
                 if (overlapArea / faceArea > 0.3) {
                     isOverlapping = true;
                     break;
@@ -289,7 +302,6 @@
                 return;
             }
 
-            // Show loading state
             DOM.analyzeBtn.disabled = true;
             DOM.analyzeBtn.innerHTML = '<div class="spinner"></div> Processing...';
             hideResult();
@@ -468,26 +480,26 @@
                     ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
                     ctx.stroke();
                 } else {
-                    // Draw rectangle (bounding box)
+
                     ctx.strokeStyle = color;
                     ctx.lineWidth = lineWidth;
                     ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
                 }
 
-                // Add labels
+
                 if (detections.length <= 20 && !lowerPrompt.includes('no label')) {
                     ctx.fillStyle = color;
                     ctx.font = `${Math.max(12, lineWidth * 3)}px sans-serif`;
                     const label = detection.class ? `${detection.class} ${index + 1}` : `${type} ${index + 1}`;
                     const textWidth = ctx.measureText(label).width;
                     
-                    // Draw background for text
+
                     ctx.fillStyle = color;
                     ctx.globalAlpha = 0.7;
                     ctx.fillRect(detection.x, detection.y - 20, textWidth + 8, 20);
                     ctx.globalAlpha = 1;
                     
-                    // Draw text
+
                     ctx.fillStyle = '#ffffff';
                     ctx.fillText(label, detection.x + 4, detection.y - 5);
                 }
